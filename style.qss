@@ -1,0 +1,43 @@
+/* Main Window */
+QMainWindow {
+    background-color: #1e1e1e;
+}
+
+/* Toolbar Area */
+QWidget#Toolbar {
+    background-color: #2d2d2d;
+    border-bottom: 1px solid #3d3d3d;
+}
+
+/* Professional Buttons */
+QPushButton {
+    background-color: #3d3d3d;
+    color: #e0e0e0;
+    border-radius: 4px;
+    padding: 6px 12px;
+    border: 1px solid #4d4d4d;
+}
+
+QPushButton:hover {
+    background-color: #4d4d4d;
+}
+
+QPushButton:pressed {
+    background-color: #0078d4;
+}
+
+/* Input boxes for Page and Zoom */
+QLineEdit {
+    background-color: #1a1a1a;
+    border: 1px solid #3d3d3d;
+    border-radius: 4px;
+    color: #0078d4;
+    font-weight: bold;
+    padding: 2px;
+}
+
+/* The PDF Canvas Background */
+QScrollArea {
+    border: none;
+    background-color: #121212;
+}
