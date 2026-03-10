@@ -20,6 +20,7 @@ class PDFReader(QMainWindow):
         self.zoom = 1.0
         self.active_tool = "Pan"
         self.start_pos = None
+        self.current_path = []
 
         # 5-Second Auto-Save Timer
         self.save_timer = QTimer()
@@ -74,7 +75,7 @@ class PDFReader(QMainWindow):
         self.zoom_input.returnPressed.connect(self.change_zoom)
 
         self.tool_selector = QComboBox()
-        self.tool_selector.addItems(["Pan", "Line", "Rectangle", "Circle", "Eraser"])
+        self.tool_selector.addItems(["None", "Pen", "Line", "Rectangle", "Circle", "Eraser"])
         self.tool_selector.currentTextChanged.connect(self.change_tool)
 
         toolbar_layout.addWidget(self.btn_open)
@@ -94,13 +95,17 @@ class PDFReader(QMainWindow):
         # --- Canvas Area ---
         self.scroll_area = QScrollArea()
         self.canvas = QLabel("Open a PDF to begin.")
-        self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # FIX: Align Top-Left instead of Center to fix mouse coordinate precision
+        self.canvas.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        
         self.scroll_area.setWidget(self.canvas)
         self.scroll_area.setWidgetResizable(True)
         layout.addWidget(self.scroll_area)
 
-        # Connect mouse events for drawing
+        # Connect mouse events
         self.canvas.mousePressEvent = self.mouse_press
+        self.canvas.mouseMoveEvent = self.mouse_move     # <-- ADD THIS LINE
         self.canvas.mouseReleaseEvent = self.mouse_release
 
     def open_file(self):
@@ -121,11 +126,11 @@ class PDFReader(QMainWindow):
         self.page_input.setText(str(self.current_page + 1))
         
         img_bytes, width, height = self.engine.get_page_image(self.current_page, self.zoom)
-        if img_bytes:
+        if img_bytes:   
             q_img = QImage.fromData(img_bytes)
-            pixmap = QPixmap.fromImage(q_img)
+            pixmap = QPixmap.fromImage(q_img)   
             self.canvas.setPixmap(pixmap)
-            self.canvas.resize(width, height)
+            self.canvas.setFixedSize(width, height) # FIX: Lock size to match image pixels exactly
         
         # Restart the 5-second inactivity timer every time we move
         self.save_timer.start()
@@ -158,18 +163,33 @@ class PDFReader(QMainWindow):
     # --- Drawing Logic ---
     def mouse_press(self, event):
         if self.active_tool != "Pan":
-            self.start_pos = (event.position().x(), event.position().y())
+            # Extract raw x and y immediately
+            self.start_pos = (float(event.position().x()), float(event.position().y()))
 
-            if self.active_tool == "Eraser":
+            if self.active_tool == "Pen":
+                self.current_path = [self.start_pos]
+            elif self.active_tool == "Eraser":
                 if self.engine.erase_annotation(self.current_page, self.start_pos, self.zoom):
-                    self.render_page() # Re-render to show erased shape
+                    self.render_page()
+
+    def mouse_move(self, event):
+        if self.active_tool == "Pen" and self.start_pos:
+            # Extract raw x and y as a tuple of floats
+            pos = (float(event.position().x()), float(event.position().y()))
+            self.current_path.append(pos)
 
     def mouse_release(self, event):
-        if self.active_tool in ["Line", "Rectangle", "Circle"] and self.start_pos:
+        if self.active_tool == "Pen" and self.start_pos:
+            self.engine.add_pen_stroke(self.current_page, self.current_path, self.zoom)
+            self.start_pos = None
+            self.current_path = []
+            self.render_page()
+            
+        elif self.active_tool in ["Line", "Rectangle", "Circle"] and self.start_pos:
             end_pos = (event.position().x(), event.position().y())
             self.engine.add_shape(self.current_page, self.active_tool, self.start_pos, end_pos, self.zoom)
             self.start_pos = None
-            self.render_page() # Re-render to show new shape
+            self.render_page()
 
     # --- Saving Logic ---
     def auto_save_position(self):

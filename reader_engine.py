@@ -37,7 +37,10 @@ class PDFEngine:
         # Un-scale the screen coordinates back to PDF coordinates
         x1, y1 = start_pt[0] / zoom, start_pt[1] / zoom
         x2, y2 = end_pt[0] / zoom, end_pt[1] / zoom
+        
+        # Create the rectangle and NORMALIZE IT to prevent the "infinite/empty" crash
         rect = fitz.Rect(x1, y1, x2, y2)
+        rect.normalize() 
 
         if shape_type == "Rectangle":
             page.add_rect_annot(rect)
@@ -45,6 +48,18 @@ class PDFEngine:
             page.add_line_annot(fitz.Point(x1, y1), fitz.Point(x2, y2))
         elif shape_type == "Circle":
             page.add_circle_annot(rect)
+
+    def add_pen_stroke(self, page_num, path_points, zoom):
+        """Adds a freehand ink stroke to the PDF."""
+        if not self.doc or len(path_points) < 2: return
+        page = self.doc[page_num]
+        
+        # Ensure points are scaled and converted to fitz.Point objects
+        pdf_points = [fitz.Point(p[0] / zoom, p[1] / zoom) for p in path_points]
+        
+        # The 'ink' annotation requires a list of 'strokes'
+        # Even if we only have one continuous stroke, it must be inside a list: [stroke]
+        page.add_ink_annot([pdf_points])
 
     def erase_annotation(self, page_num, pos, zoom):
         if not self.doc: return False
