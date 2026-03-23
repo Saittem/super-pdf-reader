@@ -1,11 +1,13 @@
 import sys
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QLabel, QFileDialog, QScrollArea, QLineEdit, 
+import os
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QLabel, QFileDialog, QScrollArea, QLineEdit,
                              QComboBox, QMessageBox)
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPixmap, QCursor
 from PyQt6.QtCore import Qt, QTimer
 import settings_manager
 from reader_engine import PDFEngine
+
 
 class PDFReader(QMainWindow):
     def __init__(self):
@@ -18,7 +20,7 @@ class PDFReader(QMainWindow):
         self.current_page = 0
         self.total_pages = 0
         self.zoom = 1.0
-        self.active_tool = "Pan"
+        self.active_tool = "None"
         self.start_pos = None
         self.current_path = []
 
@@ -30,19 +32,21 @@ class PDFReader(QMainWindow):
         self.init_ui()
 
     def load_stylesheet(self):
-        """Reads the external CSS file and applies it to the app."""
+        """Reads the external QSS file relative to this script's location."""
+        # FIX: Use __file__ so the path works regardless of working directory
+        qss_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.qss")
         try:
-            with open("style.qss", "r") as f:
+            with open(qss_path, "r") as f:
                 self.setStyleSheet(f.read())
         except FileNotFoundError:
-            print("Style file not found, using default look.")
+            print(f"Style file not found at {qss_path}, using default look.")
 
     def upload_image(self):
-        """Allows user to pick an image and 'stamp' it on the current page."""
-        img_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg)")
+        """Allows user to pick an image and stamp it on the current page."""
+        img_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Image", "", "Images (*.png *.jpg *.jpeg)"
+        )
         if img_path:
-            # We'll tell the engine to insert this image at the center of the current view
-            # or you can set a 'Stamp' mode where the next click places it.
             self.engine.insert_custom_image(self.current_page, img_path, self.zoom)
             self.render_page()
 
@@ -53,26 +57,42 @@ class PDFReader(QMainWindow):
 
         # --- Toolbar ---
         toolbar_layout = QHBoxLayout()
-        
+
         self.btn_open = QPushButton("Open PDF")
         self.btn_open.clicked.connect(self.open_file)
-        
+
         self.btn_save = QPushButton("Save PDF")
         self.btn_save.clicked.connect(self.save_pdf)
 
+        # FIX: Actually wire up the upload image button that was missing from the toolbar
+        self.btn_upload_img = QPushButton("Insert Image")
+        self.btn_upload_img.clicked.connect(self.upload_image)
+
         self.btn_prev = QPushButton("<")
         self.btn_prev.clicked.connect(lambda: self.change_page(-1))
-        
-        self.page_input = QLineEdit("0")
+
+        self.page_input = QLineEdit("1")
         self.page_input.setFixedWidth(40)
         self.page_input.returnPressed.connect(self.jump_to_page)
-        
+
+        # IMPROVEMENT: Show total page count next to the input
+        self.page_count_label = QLabel("/ 0")
+
         self.btn_next = QPushButton(">")
         self.btn_next.clicked.connect(lambda: self.change_page(1))
 
+        # IMPROVEMENT: Zoom in/out buttons alongside the input
+        self.btn_zoom_out = QPushButton("−")
+        self.btn_zoom_out.setFixedWidth(28)
+        self.btn_zoom_out.clicked.connect(lambda: self.step_zoom(-0.1))
+
         self.zoom_input = QLineEdit("1.0")
-        self.zoom_input.setFixedWidth(40)
+        self.zoom_input.setFixedWidth(45)
         self.zoom_input.returnPressed.connect(self.change_zoom)
+
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_zoom_in.setFixedWidth(28)
+        self.btn_zoom_in.clicked.connect(lambda: self.step_zoom(0.1))
 
         self.tool_selector = QComboBox()
         self.tool_selector.addItems(["None", "Pen", "Line", "Rectangle", "Circle", "Eraser"])
@@ -80,59 +100,71 @@ class PDFReader(QMainWindow):
 
         toolbar_layout.addWidget(self.btn_open)
         toolbar_layout.addWidget(self.btn_save)
+        toolbar_layout.addWidget(self.btn_upload_img)
         toolbar_layout.addStretch()
         toolbar_layout.addWidget(QLabel("Tool:"))
         toolbar_layout.addWidget(self.tool_selector)
         toolbar_layout.addStretch()
         toolbar_layout.addWidget(self.btn_prev)
         toolbar_layout.addWidget(self.page_input)
+        toolbar_layout.addWidget(self.page_count_label)
         toolbar_layout.addWidget(self.btn_next)
         toolbar_layout.addWidget(QLabel("Zoom:"))
+        toolbar_layout.addWidget(self.btn_zoom_out)
         toolbar_layout.addWidget(self.zoom_input)
+        toolbar_layout.addWidget(self.btn_zoom_in)
 
         layout.addLayout(toolbar_layout)
 
         # --- Canvas Area ---
         self.scroll_area = QScrollArea()
+
+        # FIX: Enable mouse tracking on scroll area so mouseMoveEvent fires without a button held
+        self.scroll_area.setMouseTracking(True)
+
         self.canvas = QLabel("Open a PDF to begin.")
-        
-        # FIX: Align Top-Left instead of Center to fix mouse coordinate precision
         self.canvas.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        
+
+        # FIX: Enable mouse tracking on the canvas label itself
+        self.canvas.setMouseTracking(True)
+
         self.scroll_area.setWidget(self.canvas)
         self.scroll_area.setWidgetResizable(True)
         layout.addWidget(self.scroll_area)
 
         # Connect mouse events
         self.canvas.mousePressEvent = self.mouse_press
-        self.canvas.mouseMoveEvent = self.mouse_move     # <-- ADD THIS LINE
+        self.canvas.mouseMoveEvent = self.mouse_move
         self.canvas.mouseReleaseEvent = self.mouse_release
 
     def open_file(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
         if filepath:
             self.total_pages = self.engine.load_pdf(filepath)
-            
+
             # Load saved position
             saved_data = settings_manager.get_position(filepath)
             self.current_page = saved_data["page"]
             self.zoom = saved_data["zoom"]
-            
-            self.zoom_input.setText(str(self.zoom))
+
+            self.zoom_input.setText(f"{self.zoom:.1f}")
+            # IMPROVEMENT: Update total page count label
+            self.page_count_label.setText(f"/ {self.total_pages}")
             self.render_page()
 
     def render_page(self):
-        if not self.engine.doc: return
+        if not self.engine.doc:
+            return
         self.page_input.setText(str(self.current_page + 1))
-        
+
         img_bytes, width, height = self.engine.get_page_image(self.current_page, self.zoom)
-        if img_bytes:   
+        if img_bytes:
             q_img = QImage.fromData(img_bytes)
-            pixmap = QPixmap.fromImage(q_img)   
+            pixmap = QPixmap.fromImage(q_img)
             self.canvas.setPixmap(pixmap)
-            self.canvas.setFixedSize(width, height) # FIX: Lock size to match image pixels exactly
-        
-        # Restart the 5-second inactivity timer every time we move
+            self.canvas.setFixedSize(width, height)
+
+        # Restart the 5-second inactivity timer every time we render
         self.save_timer.start()
 
     def change_page(self, delta):
@@ -152,18 +184,33 @@ class PDFReader(QMainWindow):
 
     def change_zoom(self):
         try:
-            self.zoom = float(self.zoom_input.text())
+            new_zoom = float(self.zoom_input.text())
+            # Clamp zoom to a sensible range
+            self.zoom = max(0.1, min(new_zoom, 5.0))
+            self.zoom_input.setText(f"{self.zoom:.1f}")
             self.render_page()
         except ValueError:
             pass
 
+    def step_zoom(self, delta):
+        """IMPROVEMENT: Increment or decrement zoom by a fixed step."""
+        self.zoom = round(max(0.1, min(self.zoom + delta, 5.0)), 1)
+        self.zoom_input.setText(f"{self.zoom:.1f}")
+        self.render_page()
+
     def change_tool(self, tool):
         self.active_tool = tool
+        # IMPROVEMENT: Update cursor to reflect the active tool
+        if tool == "None":
+            self.canvas.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        elif tool == "Eraser":
+            self.canvas.setCursor(QCursor(Qt.CursorShape.ForbiddenCursor))
+        else:
+            self.canvas.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
     # --- Drawing Logic ---
     def mouse_press(self, event):
-        if self.active_tool != "Pan":
-            # Extract raw x and y immediately
+        if self.active_tool != "None":
             self.start_pos = (float(event.position().x()), float(event.position().y()))
 
             if self.active_tool == "Pen":
@@ -174,22 +221,28 @@ class PDFReader(QMainWindow):
 
     def mouse_move(self, event):
         if self.active_tool == "Pen" and self.start_pos:
-            # Extract raw x and y as a tuple of floats
             pos = (float(event.position().x()), float(event.position().y()))
             self.current_path.append(pos)
 
     def mouse_release(self, event):
         if self.active_tool == "Pen" and self.start_pos:
-            self.engine.add_pen_stroke(self.current_page, self.current_path, self.zoom)
+            # FIX: Guard against a single-point path (click with no drag) which would
+            # pass the engine's len < 2 check but can still cause issues upstream.
+            if len(self.current_path) >= 2:
+                self.engine.add_pen_stroke(self.current_page, self.current_path, self.zoom)
+                self.render_page()
             self.start_pos = None
             self.current_path = []
-            self.render_page()
-            
+
         elif self.active_tool in ["Line", "Rectangle", "Circle"] and self.start_pos:
-            end_pos = (event.position().x(), event.position().y())
-            self.engine.add_shape(self.current_page, self.active_tool, self.start_pos, end_pos, self.zoom)
+            end_pos = (float(event.position().x()), float(event.position().y()))
+            # Guard against zero-size shapes (accidental click with no drag)
+            if end_pos != self.start_pos:
+                self.engine.add_shape(
+                    self.current_page, self.active_tool, self.start_pos, end_pos, self.zoom
+                )
+                self.render_page()
             self.start_pos = None
-            self.render_page()
 
     # --- Saving Logic ---
     def auto_save_position(self):
@@ -202,29 +255,27 @@ class PDFReader(QMainWindow):
 
     def closeEvent(self, event):
         if self.engine.doc:
-            reply = QMessageBox.question(self, 'Exit',
-                                         "Do you want to save your drawings before quitting?",
-                                         QMessageBox.StandardButton.Save | 
-                                         QMessageBox.StandardButton.Discard | 
-                                         QMessageBox.StandardButton.Cancel)
-
+            reply = QMessageBox.question(
+                self, 'Exit',
+                "Do you want to save your drawings before quitting?",
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel
+            )
             if reply == QMessageBox.StandardButton.Save:
                 self.save_pdf()
                 event.accept()
             elif reply == QMessageBox.StandardButton.Discard:
-                self.auto_save_position() # Still save reading position!
+                self.auto_save_position()
                 event.accept()
             else:
-                event.ignore() # Cancel
+                event.ignore()
         else:
             event.accept()
 
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    # If you saved ui_styles.py, uncomment the next two lines:
-    # import ui_styles
-    # app.setStyleSheet(ui_styles.get_stylesheet())
-    
     window = PDFReader()
     window.show()
     sys.exit(app.exec())
