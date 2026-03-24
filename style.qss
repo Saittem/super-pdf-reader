@@ -1,15 +1,12 @@
-/* Main Window */
 QMainWindow {
     background-color: #1e1e1e;
 }
 
-/* Toolbar Area */
 QWidget#Toolbar {
     background-color: #2d2d2d;
     border-bottom: 1px solid #3d3d3d;
 }
 
-/* Professional Buttons */
 QPushButton {
     background-color: #3d3d3d;
     color: #e0e0e0;
@@ -26,7 +23,6 @@ QPushButton:pressed {
     background-color: #0078d4;
 }
 
-/* Input boxes for Page and Zoom */
 QLineEdit {
     background-color: #1a1a1a;
     border: 1px solid #3d3d3d;
@@ -36,13 +32,11 @@ QLineEdit {
     padding: 2px;
 }
 
-/* The PDF Canvas Background */
 QScrollArea {
     border: none;
     background-color: #121212;
 }
 
-/* The main box of the dropdown */
 QComboBox {
     background-color: #3d3d3d;
     border: 1px solid #4d4d4d;
@@ -52,19 +46,17 @@ QComboBox {
 }
 
 QComboBox:hover {
-    border: 1px solid #0078d4; /* Glow blue on hover */
+    border: 1px solid #0078d4;
 }
 
-/* The actual list that pops out */
 QComboBox QAbstractItemView {
     background-color: #2d2d2d;
     border: 1px solid #3d3d3d;
-    selection-background-color: #0078d4; /* This is valid in QSS for views */
-    selection-color: #ffffff;            /* Color of the text when highlighted */
-    outline: 0px;                        /* Removes the tiny dotted border on Windows */
+    selection-background-color: #0078d4;
+    selection-color: #ffffff;
+    outline: 0px;
 }
 
-/* Optional: Style the arrow on the right of the dropdown */
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
