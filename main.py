@@ -142,6 +142,8 @@ class PDFReader(QMainWindow):
         self.canvas.mouseMoveEvent = self.mouse_move
         self.canvas.mouseReleaseEvent = self.mouse_release
 
+        self.change_tool(self.tool_selector.currentText())
+
     def open_file(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
         if filepath:
