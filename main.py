@@ -22,6 +22,7 @@ class PDFReader(QMainWindow):
         self.zoom = 1.0
         self.active_tool = "None"
         self.start_pos = None
+        self.pan_origin = None
         self.current_path = []
 
         # 5-Second Auto-Save Timer
@@ -200,7 +201,7 @@ class PDFReader(QMainWindow):
     def change_tool(self, tool):
         self.active_tool = tool
         if tool == "None":
-            self.canvas.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.canvas.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
         elif tool == "Eraser":
             self.canvas.setCursor(QCursor(Qt.CursorShape.ForbiddenCursor))
         else:
@@ -208,6 +209,10 @@ class PDFReader(QMainWindow):
 
     # --- Drawing Logic ---
     def mouse_press(self, event):
+        if self.active_tool == "None":
+            self.pan_origin = event.position()
+            self.canvas.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+            return
         if self.active_tool != "None":
             self.start_pos = (float(event.position().x()), float(event.position().y()))
 
@@ -218,11 +223,25 @@ class PDFReader(QMainWindow):
                     self.render_page()
 
     def mouse_move(self, event):
+        if self.active_tool == "None" and self.pan_origin:
+            delta = event.position() - self.pan_origin
+            self.pan_origin = event.position()
+            self.scroll_area.horizontalScrollBar().setValue(
+                self.scroll_area.horizontalScrollBar().value() - int(delta.x())
+            )
+            self.scroll_area.verticalScrollBar().setValue(
+                self.scroll_area.verticalScrollBar().value() - int(delta.y())
+            )
+            return
         if self.active_tool == "Pen" and self.start_pos:
             pos = (float(event.position().x()), float(event.position().y()))
             self.current_path.append(pos)
 
     def mouse_release(self, event):
+        if self.active_tool == "None" and self.pan_origin:
+            self.pan_origin = None
+            self.canvas.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+            return
         if self.active_tool == "Pen" and self.start_pos:
             if len(self.current_path) >= 2:
                 self.engine.add_pen_stroke(self.current_page, self.current_path, self.zoom)
