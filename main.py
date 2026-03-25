@@ -166,8 +166,12 @@ class PDFReader(QMainWindow):
         if img_bytes:
             q_img = QImage.fromData(img_bytes)
             pixmap = QPixmap.fromImage(q_img)
+            self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.canvas.setPixmap(pixmap)
-            self.canvas.setFixedSize(width, height)
+            self.canvas.resize(width, height)
+            #self.canvas.setPixmap(pixmap)
+            #self.canvas.setFixedSize(width, height)
 
         self.save_timer.start()
 
