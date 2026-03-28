@@ -7,6 +7,7 @@ from PyQt6.QtGui import QImage, QPixmap, QCursor, QIcon
 from PyQt6.QtCore import Qt, QTimer
 import settings_manager
 from reader_engine import PDFEngine
+from image_overlay import ImageOverlay
 
 
 class PDFReader(QMainWindow):
@@ -24,6 +25,7 @@ class PDFReader(QMainWindow):
         self.start_pos = None
         self.pan_origin = None
         self.current_path = []
+        self.image_overlays = []
 
         # 5-Second Auto-Save Timer
         self.save_timer = QTimer()
@@ -46,8 +48,10 @@ class PDFReader(QMainWindow):
             self, "Select Image", "", "Images (*.png *.jpg *.jpeg)"
         )
         if img_path:
-            self.engine.insert_custom_image(self.current_page, img_path, self.zoom)
-            self.render_page()
+            overlay = ImageOverlay(img_path, self.canvas)
+            overlay.move(50, 50)
+            overlay.show()
+            self.image_overlays.append(overlay)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -103,7 +107,7 @@ class PDFReader(QMainWindow):
         self.tool_selector.addItem(QIcon("assets/icon_line.svg"), "Line")
         self.tool_selector.addItem(QIcon("assets/icon_rectangle.svg"), "Rectangle")
         self.tool_selector.addItem(QIcon("assets/icon_circle.svg"), "Circle")
-        self.tool_selector.addItem(QIcon("assets/icon_eraser.svg"), "Eraser")
+        self.tool_selector .addItem(QIcon("assets/icon_eraser.svg"), "Eraser")
         self.tool_selector.currentTextChanged.connect(self.change_tool)
 
         toolbar_layout.addWidget(self.btn_open)
@@ -170,8 +174,6 @@ class PDFReader(QMainWindow):
             self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.canvas.setPixmap(pixmap)
             self.canvas.resize(width, height)
-            #self.canvas.setPixmap(pixmap)
-            #self.canvas.setFixedSize(width, height)
 
         self.save_timer.start()
 
@@ -270,7 +272,22 @@ class PDFReader(QMainWindow):
             settings_manager.save_position(self.engine.filepath, self.current_page, self.zoom)
 
     def save_pdf(self):
+        for overlay in self.image_overlays:
+            # FIX: overlay.geometry() is relative to the canvas widget, but the
+            # canvas may be offset inside the scroll area. We want pure canvas-relative
+            # coords, which geometry() already gives us since the parent IS the canvas.
+            # We then divide by zoom to convert screen px → PDF points.
+            x1, y1, x2, y2 = overlay.pdf_rect(self.zoom)
+            self.engine.insert_custom_image(
+                self.current_page, overlay.image_path, x1, y1, x2, y2
+            )
+        # Remove overlay widgets from the canvas
+        for overlay in self.image_overlays:
+            overlay.deleteLater()
+        self.image_overlays.clear()
         self.engine.save_document()
+        # Re-render so the baked image is visible immediately
+        self.render_page()
         self.auto_save_position()
 
     def closeEvent(self, event):

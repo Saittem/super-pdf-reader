@@ -1,22 +1,26 @@
 import fitz  # PyMuPDF
+import os
 
 
 class PDFEngine:
     def __init__(self):
         self.doc = None
         self.filepath = ""
+        self._images_inserted = False  # Track if we need a full rewrite on save
 
-    def insert_custom_image(self, page_num, image_path, zoom):
+    def insert_custom_image(self, page_num, image_path, x1, y1, x2, y2):
         if not self.doc:
             return
         page = self.doc[page_num]
-        # Default placement rect — in a full implementation you'd pass mouse coords here
-        rect = fitz.Rect(50, 50, 150, 150)
-        page.insert_image(rect, filename=image_path)
+        # FIX: Removed the duplicate insert_image call with the old hardcoded rect
+        # that was corrupting the xref table and breaking the saved PDF.
+        page.insert_image(fitz.Rect(x1, y1, x2, y2), filename=image_path)
+        self._images_inserted = True
 
     def load_pdf(self, filepath):
         self.filepath = filepath
         self.doc = fitz.open(filepath)
+        self._images_inserted = False
         return len(self.doc)
 
     def get_page_image(self, page_num, zoom):
@@ -46,7 +50,6 @@ class PDFEngine:
             page.add_circle_annot(rect)
 
     def add_pen_stroke(self, page_num, path_points, zoom):
-        """Adds a freehand ink stroke to the PDF."""
         if not self.doc or len(path_points) < 2:
             return
         page = self.doc[page_num]
@@ -65,25 +68,28 @@ class PDFEngine:
         return False
 
     def save_document(self):
-        """Save the document, falling back to a full rewrite if incremental save fails.
-        
-        FIX: incremental=True raises an exception on PDFs that were never cleanly saved
-        (e.g. freshly created or repaired files). The fallback rewrites to a temp file
-        and replaces the original, which is safe in all cases.
-        """
         if not self.doc:
             return
-        try:
-            self.doc.save(
-                self.filepath,
-                incremental=True,
-                encryption=fitz.PDF_ENCRYPT_KEEP
-            )
-        except Exception:
-            # Fallback: full rewrite via a temporary file
-            import os
+        # FIX: Always do a full rewrite when images have been inserted.
+        # insert_image embeds binary streams that make incremental saves
+        # produce broken xref tables, causing "cannot find object" errors on reopen.
+        if self._images_inserted:
             tmp_path = self.filepath + ".tmp"
             self.doc.save(tmp_path, garbage=4, deflate=True)
             self.doc.close()
             os.replace(tmp_path, self.filepath)
             self.doc = fitz.open(self.filepath)
+            self._images_inserted = False
+        else:
+            try:
+                self.doc.save(
+                    self.filepath,
+                    incremental=True,
+                    encryption=fitz.PDF_ENCRYPT_KEEP
+                )
+            except Exception:
+                tmp_path = self.filepath + ".tmp"
+                self.doc.save(tmp_path, garbage=4, deflate=True)
+                self.doc.close()
+                os.replace(tmp_path, self.filepath)
+                self.doc = fitz.open(self.filepath)
