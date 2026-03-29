@@ -51,7 +51,28 @@ class PDFReader(QMainWindow):
             overlay = ImageOverlay(img_path, self.canvas)
             overlay.move(50, 50)
             overlay.show()
+            overlay.confirmed.connect(self._on_overlay_confirmed)
+            overlay.discarded.connect(self._on_overlay_discarded)
             self.image_overlays.append(overlay)
+
+    def _on_overlay_confirmed(self, image_path, ox, oy, ow, oh):
+        """Bake the image into the PDF in memory as soon as the user clicks ✓."""
+        self.engine.insert_custom_image(
+            self.current_page,
+            image_path,
+            ox / self.zoom,
+            oy / self.zoom,
+            (ox + ow) / self.zoom,
+            (oy + oh) / self.zoom,
+        )
+        # Remove from tracking list (overlay already called deleteLater on itself)
+        self.image_overlays = [o for o in self.image_overlays if not o.image_path == image_path]
+        self.render_page()
+
+    def _on_overlay_discarded(self, overlay):
+        """Remove the overlay from tracking without touching the PDF."""
+        if overlay in self.image_overlays:
+            self.image_overlays.remove(overlay)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -272,21 +293,21 @@ class PDFReader(QMainWindow):
             settings_manager.save_position(self.engine.filepath, self.current_page, self.zoom)
 
     def save_pdf(self):
+        # Any overlays still open (not yet confirmed) are baked now on explicit save
         for overlay in self.image_overlays:
-            # FIX: overlay.geometry() is relative to the canvas widget, but the
-            # canvas may be offset inside the scroll area. We want pure canvas-relative
-            # coords, which geometry() already gives us since the parent IS the canvas.
-            # We then divide by zoom to convert screen px → PDF points.
-            x1, y1, x2, y2 = overlay.pdf_rect(self.zoom)
+            ox, oy = overlay.x(), overlay.y()
+            ow, oh = overlay.width(), overlay.height()
             self.engine.insert_custom_image(
-                self.current_page, overlay.image_path, x1, y1, x2, y2
+                self.current_page,
+                overlay.image_path,
+                ox / self.zoom,
+                oy / self.zoom,
+                (ox + ow) / self.zoom,
+                (oy + oh) / self.zoom,
             )
-        # Remove overlay widgets from the canvas
-        for overlay in self.image_overlays:
             overlay.deleteLater()
         self.image_overlays.clear()
         self.engine.save_document()
-        # Re-render so the baked image is visible immediately
         self.render_page()
         self.auto_save_position()
 

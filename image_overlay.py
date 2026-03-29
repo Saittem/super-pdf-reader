@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtWidgets import QWidget, QApplication, QPushButton, QHBoxLayout
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QCursor
-from PyQt6.QtCore import Qt, QRect, QPoint, QSize
+from PyQt6.QtCore import Qt, QRect, QPoint, QSize, pyqtSignal
 
 
 # Names for each of the 8 resize handles
@@ -25,12 +25,18 @@ MIN_SIZE    = 20     # px — minimum width/height when resizing
 class ImageOverlay(QWidget):
     """
     A draggable, resizable image widget that sits on top of the PDF canvas.
-    
+
     - Drag the body to move.
     - Drag any of the 8 handles to resize.
     - Hold Shift while resizing to lock the aspect ratio.
-    - Call `pdf_rect(zoom)` to get the image's final rect in PDF coordinates.
+    - Click ✓ to confirm (bakes into PDF in memory, removes overlay).
+    - Click ✗ to discard (removes overlay without touching the PDF).
     """
+
+    # Emitted when the user clicks ✓ — carries (image_path, x, y, w, h) in canvas px
+    confirmed = pyqtSignal(str, int, int, int, int)
+    # Emitted when the user clicks ✗
+    discarded = pyqtSignal(object)   # passes self so the parent can remove it
 
     def __init__(self, image_path: str, parent: QWidget):
         super().__init__(parent)
@@ -51,12 +57,54 @@ class ImageOverlay(QWidget):
         self._drag_offset = QPoint()
 
         # Resize state
-        self._resizing      = None   # handle name string or None
-        self._resize_origin = QPoint()
+        self._resizing         = None
+        self._resize_origin    = QPoint()
         self._resize_start_geo = QRect()
 
+        self._build_buttons()
         self.setMouseTracking(True)
         self.raise_()
+
+    def _build_buttons(self):
+        """Create the ✓ / ✗ confirm-discard buttons pinned to the top-right."""
+        self._btn_confirm = QPushButton("✓", self)
+        self._btn_discard = QPushButton("✗", self)
+        for btn in (self._btn_confirm, self._btn_discard):
+            btn.setFixedSize(22, 22)
+            btn.setStyleSheet(
+                "QPushButton { border-radius: 11px; font-size: 13px; font-weight: bold; }"
+            )
+        self._btn_confirm.setStyleSheet(
+            self._btn_confirm.styleSheet() +
+            "QPushButton { background: #27ae60; color: white; }"
+            "QPushButton:hover { background: #2ecc71; }"
+        )
+        self._btn_discard.setStyleSheet(
+            self._btn_discard.styleSheet() +
+            "QPushButton { background: #c0392b; color: white; }"
+            "QPushButton:hover { background: #e74c3c; }"
+        )
+        self._btn_confirm.clicked.connect(self._on_confirm)
+        self._btn_discard.clicked.connect(self._on_discard)
+        self._reposition_buttons()
+
+    def _reposition_buttons(self):
+        """Keep buttons pinned to the top-right corner of the overlay."""
+        margin = 4
+        self._btn_discard.move(self.width() - 22 - margin, margin)
+        self._btn_confirm.move(self.width() - 22 * 2 - margin * 2, margin)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_buttons()
+
+    def _on_confirm(self):
+        self.confirmed.emit(self.image_path, self.x(), self.y(), self.width(), self.height())
+        self.deleteLater()
+
+    def _on_discard(self):
+        self.discarded.emit(self)
+        self.deleteLater()
 
     # ------------------------------------------------------------------ #
     #  Handle geometry helpers
@@ -241,11 +289,18 @@ class ImageOverlay(QWidget):
         Use this when baking the image into the PDF on save.
 
         Returns a plain tuple (x1, y1, x2, y2) in PDF points.
+
+        NOTE: We use x/y + width/height instead of QRect.right()/bottom() because
+        Qt's inclusive rect means right() = x + width - 1, which silently shrinks
+        the image by 1px per edge and produces wrong dimensions in PDF space.
         """
-        g = self.geometry()
+        x = self.x()
+        y = self.y()
+        w = self.width()
+        h = self.height()
         return (
-            g.x()      / zoom,
-            g.y()      / zoom,
-            g.right()  / zoom,
-            g.bottom() / zoom,
+            x       / zoom,
+            y       / zoom,
+            (x + w) / zoom,
+            (y + h) / zoom,
         )
